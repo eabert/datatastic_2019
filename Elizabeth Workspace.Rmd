@@ -1,0 +1,187 @@
+---
+title: "DataFest Workspace"
+author: "Elizabeth"
+date: "April 6, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warnings = FALSE, messages = FALSE, fig.align = "center", cache = TRUE)
+knitr::opts_knit$set(root.dir = normalizePath("."))
+options(stringsAsFactors = FALSE)
+```
+
+```{r read_data}
+setwd("C:/Users/eabert/Documents/Programming/analytics_projects/DataFest 2019/datatastic_2019/datafest-osu-2019/data")
+games <- read.csv(file = "games.csv")
+gps <- read.csv(file = "gps.csv")
+# rpe <- read.csv(file = "rpe.csv")
+wellness <- read.csv(file = "wellness.csv")
+wellnessMessy <- wellness
+```
+
+## Sleep EDA
+
+```{r start_subsetting}
+summary(wellness[7:10])
+p1_bt <- wellness$BedTime[wellness$PlayerID == 1]
+p1_bt <- subset(wellness, wellness$PlayerID == 1)
+```
+
+```{r sleep_eda}
+library(dplyr)
+
+tapply(wellness$BedTime, wellness$PlayerID, summary) # successful summary, failed to hist
+
+# successful summary
+wellness %>% 
+  group_by(PlayerID) %>% 
+  summarize(mean = mean(SleepHours), sd = sd(SleepHours)) 
+
+# successful plot
+wellness %>% 
+  group_by(PlayerID) %>% 
+  summarize(mean=mean(SleepHours)) %>% 
+  plot()
+
+# successful boxplot
+## Lots of variance/outliers
+wellness %>%
+  boxplot(SleepHours ~ PlayerID, data = .)
+
+library(ggplot2)
+ggplot(wellness, aes(SleepHours, SleepQuality)) +
+  geom_point(alpha = 0.05)
+```
+
+## Data cleaning - Reporting Mistakes
+
+### Military Time Mistake
+
+#### Length Cleaning:
+Subtract 12 hours to account for military time mistake from sleep times over 19
+
+```{r shorten_long}
+# TODO Look at these rows and see if they needed to be cleaned like this
+
+# some people slept way too much
+cutoff <- 19
+# base R
+wellness$SleepHours[wellness$SleepHours > cutoff] = wellness$SleepHours[wellness$SleepHours > cutoff] - 12
+# dplyr alternative
+wellness %>%
+  mutate(SleepHours = 
+           case_when(
+             SleepHours > cutoff ~ SleepHours - 12,
+             TRUE ~ SleepHours
+           ))
+```
+
+#### Bed/Wake Time Cleaning
+
+##### Found Errors
+```{r find_errors}
+# because of the distribution of bedtimes, assume they meant to use 24 hour time and no one went to sleep mid-morning
+hist(wellness$BedTimeHour)
+
+# reporting error verified - look at people asleep before noon (military v standard time)
+require(lubridate)
+wellness %>%
+  filter(hour(BedTime) <= 12)
+
+# time as an integer for easy (imprecise!) comparison, instead of lubridate
+wellness$BedTimeHour <- as.integer(substring(wellness$BedTime, 0, 2))
+wellness$WakeTimeHour <- as.integer(substring(wellness$WakeTime, 0, 2))
+
+# predict wake time
+wellness$PredWakeTime <- (wellness$BedTimeHour + wellness$SleepHours) %% 24
+# check
+wellness$change12hr <- (abs(trunc(wellness$PredWakeTime) - wellness$WakeTimeHour) > 2)
+# verify predicted wake time - changed to filter (better)
+wellness %>%
+  # filter(BedTimeHour > 4 & BedTimeHour < 12 & wellness$change12hr == TRUE) %>% 
+  filter(wellness$change12hr == TRUE) %>%
+  # select(c(PlayerID, BedTimeHour, SleepHours, PredWakeTime, WakeTimeHour, change12hr)) %>% 
+  View()
+```
+
+##### Naiive Clean Errors by Dropping
+
+```{r drop_time}
+wellnessClean <- wellness %>%
+  filter(change12hr == FALSE)
+```
+
+##### Clean Errors
+```{r clean_time}
+# TODO NEXT FIND OUT HOW TO ADD 12 HOURS
+
+# TODO - sub 12 from wake for __player 17 on 2017-10-15__ and __player 17 on 2018-01-02__
+wellness %>%
+  mutate(WakeTime = 
+           case_when(
+             PlayerID == 17 & Date == "2017-10-15" ~ WakeTime - 12,
+             PlayerID == 17 & Date == "2018-01-02" ~ WakeTime - 12,
+             TRUE ~ WakeTime
+           ))
+
+# TODO rerun flag code here
+
+# TODO - add 12 hrs to sleep for __flag__
+wellness %>%
+  mutate(BedTime = 
+           case_when(
+             change12hr == TRUE ~ BedTime + 12,
+             TRUE ~ BedTime
+           ))
+```
+
+### Data Cleaning Result Impact
+
+```{r comparison}
+# From sleep_eda:
+wellnessMessy %>%
+  boxplot(SleepHours ~ PlayerID, data = .)
+wellnessClean %>%
+  boxplot(SleepHours ~ PlayerID, data = .)
+
+ggplot(wellnessMessy, aes(SleepHours, SleepQuality)) +
+  geom_point(alpha = 0.05)
+ggplot(wellnessClean, aes(SleepHours, SleepQuality)) +
+  geom_point(alpha = 0.05)
+# TODO fix axes
+```
+
+```{r wellness_export}
+# Shared via Slack
+wellnessClean %>%
+  write.csv(file = "wellness_clean.csv")
+```
+
+## Wellness/Fatigue EDA
+Correlation between wellness metrics, paying special attention to corr to fatigue
+
+```{r}
+library(GGally)
+full_list <- c("Fatigue", "Soreness", "Desire", "Irritability", "SleepHours", "SleepQuality", "MonitoringScore", "Pain", "Illness", "Menstruation", "Nutrition", "NutritionAdjustment", "USGMeasurement", "USG")
+short_list <- c("Fatigue", "Soreness", "Desire")
+wellnessClean %>%
+  select(full_list) %>% 
+  ggpairs(upper = list(continuous = wrap("cor", size = 9)))
+
+cor_numeric <- c("Fatigue", "Soreness", "Desire", "Irritability", "SleepHours", "SleepQuality") #, "MonitoringScore")
+wellnessClean %>%
+  select(cor_numeric) %>% 
+  cor() %>%
+  View()
+
+round(cor(select(wellnessClean, cor_numeric))[3], 4) # 1) correlation with desire
+round(cor(select(wellnessClean, cor_numeric))[6], 4) # 2) correlation with sleep quality
+round(cor(select(wellnessClean, cor_numeric))[2], 4) # 3) correlation with soreness
+
+```
+
+
+# TODO Next: get weather data from Cole
+
+# TODO Later: make rolling sleep consistency metric @ Cole (sd sleep time over 3 days? 1 week?)
