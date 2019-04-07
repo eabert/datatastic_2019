@@ -181,7 +181,62 @@ round(cor(select(wellnessClean, cor_numeric))[2], 4) # 3) correlation with soren
 
 ```
 
+## Fatigue to RPE
 
-# TODO Next: get weather data from Cole
+```{r}
+summary(rpe)
+table(rpe$Training) # 7622 yes
+table(rpe$SessionType)
+length(rpe$SessionType) - 463 # = 8397 sessions > 7622 training days, therefore multiple training sessions/day
 
-# TODO Later: make rolling sleep consistency metric @ Cole (sd sleep time over 3 days? 1 week?)
+rpe %>%
+  filter(SessionType == "Game") %>%
+  group_by(Date, PlayerID) %>%
+  summarize(game_train = sum(which(Training == "Yes"))) %>%
+  pull(game_train) %>%
+  hist()
+# more complicated - what other types of training did they have on days they had games?
+
+rpe %>%
+  filter(SessionType == "Game") %>%
+  group_by(Date, PlayerID) %>%
+  summarize(game_train = sum(which(Training == "Yes"))) %>% # everyone had lots of sessions even on their game days
+  filter(game_train == 0)
+# every day they had a game they also trained
+
+rpe %>% 
+  filter(PlayerID == "2" & Date == "2017-10-28")
+# 3 games and 1 skills training
+
+rpe %>%
+  filter(Training == "No") %>%
+  group_by(Date, PlayerID) %>% # this line doesn't do anything; only one observation per player per off day
+  nrow()
+# 1238 off days
+
+rpe %>%
+  filter(Training == "No" & !is.na(SessionType))
+# player 3 didn't train but did do conditioning on 2017-11-30
+
+# Game Day Only Data:
+game_days <- rpe %>%
+  filter(SessionType == "Game") %>%
+  pull(Date) %>%
+  unique()
+rpe %>%
+  filter(Date %in% game_days) %>%
+  View()
+# They do lots of other things around when they're playing
+
+# Game day workouts per player:
+gameday_rpe <- rpe %>%
+  filter(Date %in% game_days) %>%
+  group_by(Date, PlayerID) %>%
+  mutate(Sessions = paste0(SessionType, collapse = ", ")) %>%
+  group_by(Date, PlayerID) %>%
+  summarize(total_duration = sum(Duration), total_RPE = sum(RPE), total_SessionLoad = sum(SessionLoad), Sessions = first(Sessions), DailyLoad = first(DailyLoad), AcuteLoad = first(AcuteLoad), ChronicLoad = first(ChronicLoad), AcuteChronicRatio = first(AcuteChronicRatio), ObjectiveRating = first(ObjectiveRating), FocusRating = first(FocusRating), BestOutOfMyself = first(BestOutOfMyself), Training = first(Training)) %>% # first() to save var
+  filter(Training == "Yes") %>%
+  View()
+```
+
+# TODO Later: make rolling sleep consistency metric (sd sleep time over 3 days? 1 week?)
