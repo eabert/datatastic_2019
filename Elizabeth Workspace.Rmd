@@ -235,8 +235,92 @@ gameday_rpe <- rpe %>%
   mutate(Sessions = paste0(SessionType, collapse = ", ")) %>%
   group_by(Date, PlayerID) %>%
   summarize(total_duration = sum(Duration), total_RPE = sum(RPE), total_SessionLoad = sum(SessionLoad), Sessions = first(Sessions), DailyLoad = first(DailyLoad), AcuteLoad = first(AcuteLoad), ChronicLoad = first(ChronicLoad), AcuteChronicRatio = first(AcuteChronicRatio), ObjectiveRating = first(ObjectiveRating), FocusRating = first(FocusRating), BestOutOfMyself = first(BestOutOfMyself), Training = first(Training)) %>% # first() to save var
-  filter(Training == "Yes") %>%
+  filter(Training == "Yes") 
+```
+
+# Day 2
+
+## Connecting meaningful things to RPE
+
+```{r}
+# Using gameday_rpe combine in wellness for those players and games
+well_rpe <- merge(gameday_rpe, wellnessClean, by = c("Date", "PlayerID"), all = TRUE)
+# drop NA rows
+well_rpe <- well_rpe %>%
+  filter(!is.na(total_duration))
+
+# tried to order bedtimes as numbers - failed
+well_rpe$BedTime <- as.numeric(well_rpe$BedTimeHour)
+well_rpe %>%
+  mutate(BedTimeHour = case_when(BedTimeHour < 12 ~ BedTimeHour + 24,
+                                 TRUE ~ BedTimeHour)) %>%
+  ggplot(aes(x = BedTimeHour, y = total_RPE)) +
+  geom_point()
+# clumsily added back to well_rpe - success in plotting sleep over time
+well_rpe_late <- well_rpe %>%
+  filter(BedTimeHour < 12) %>%
+  mutate(BedTimeHour = BedTimeHour + 24)
+well_rpe_early <- well_rpe %>%
+  filter(BedTimeHour >= 12) 
+well_rpe_new <- rbind(well_rpe_late, well_rpe_early)
+
+ggplot(well_rpe_new, aes(x = BedTimeHour, y = total_RPE)) +
+  geom_point()
+cor_numeric <- c("total_duration", "ObjectiveRating", "FocusRating", "Fatigue", "Soreness", "Desire", "Irritability", "SleepHours", "SleepQuality", "MonitoringScore", "USG", "TrainingReadiness", "BedTimeHour", "WakeTimeHour")
+# total_duration - work athletes longer, they get more exhausted
+# ObjectiveRating - they can accomplish their objective without getting too much more exhausted (low slope)
+# FocusRating - "" ""
+# Fatigue - their workout isn't going to exhaust them more because they woke up fatigued
+# Soreness - they can power through a workout while being sore
+# Desire & Irritability & SleepHours & SleepQuality & dehydration no impact too
+# TrainingReadiness - more ready to train, more exertion
+# SleepTime
+
+well_rpe_new %>%
+  select(c("total_duration", "total_RPE", "ObjectiveRating", "FocusRating", "Fatigue", "Soreness", "Desire", "Irritability", "SleepHours", "SleepQuality", "MonitoringScore", "USG", "BedTimeHour", "WakeTimeHour")) %>% 
+  cor() %>%
   View()
+```
+
+## Merge wellness rpe with games
+
+```{r}
+games$PointRatio <- games$TeamPoints / (games$TeamPointsAllowed)
+well_rpe_game <- merge(well_rpe, games, by = c("Date"), all = TRUE)
+well_rpe_game <- well_rpe_game %>%
+  filter(!is.na(Outcome))
+
+# % of time players we have data on win their games
+nrow(well_rpe_game[well_rpe_game$PointRatio > 1,]) / nrow(well_rpe_game)
+
+well_rpe_game_high <- well_rpe_game %>%
+  filter(PointRatio == Inf) %>%
+  mutate(PointRatio = 6.25)
+well_rpe_game_other <- well_rpe_game %>%
+  filter(PointRatio != Inf)
+well_rpe_game_new <- rbind(well_rpe_game_high, well_rpe_game_other)
+
+ggplot(well_rpe_game_new, aes(x = total_RPE, y = PointRatio)) +
+  geom_point() +
+  geom_abline()
+
+well_rpe_game_new %>%
+  select(c("PointRatio", "total_duration", "total_RPE", "ObjectiveRating", "FocusRating", "Fatigue", "Soreness", "Desire", "Irritability", "SleepHours", "SleepQuality", "MonitoringScore", "USG", "BedTimeHour", "WakeTimeHour")) %>%
+  cor(use = "complete.obs") %>%
+  View()
+```
+
+# TODO Go to Dave with 3 step thoughts wellness->RPE
+
+## GPS Analysis
+Data from Cole & Edwin - unexlplored/unvisualized
+
+```{r}
+setwd("C:/Users/eabert/Documents/Programming/analytics_projects/DataFest 2019/datatastic_2019/datafest-osu-2019/data")
+distance <- read.csv(file = "distance.csv")
+playtime <- read.csv(file = "playtime.csv")
+
+# Summarize them
 ```
 
 # TODO Later: make rolling sleep consistency metric (sd sleep time over 3 days? 1 week?)
